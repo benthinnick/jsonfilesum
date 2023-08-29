@@ -34,18 +34,22 @@ func main() {
 	var wg sync.WaitGroup
 
 	var chans [5]chan [bulkSize]types.Pair
-	out := make(chan int64, 10)
+	out := make(chan int64)
+	res := make(chan int64)
 
 	for i := 0; i < 5; i++ {
-		chans[i] = make(chan [bulkSize]types.Pair)
+		chans[i] = make(chan [bulkSize]types.Pair, 3)
 		wg.Add(1)
 		startProcess(chans[i], out, &wg)
 	}
 
 	go func() {
-		wg.Wait()
-		log.Println("Channels closed")
-		close(out)
+		var s int64
+		for v := range out {
+			s += v
+		}
+
+		res <- s
 	}()
 
 	f, err := os.Open("./bigData.json")
@@ -94,10 +98,13 @@ func main() {
 		close(ch)
 	}
 
-	var s int64
-	for v := range out {
-		s += v
+	wg.Wait()
+	log.Println("Channels closed")
+	close(out)
+
+	ans, ok := <-res
+	if ok {
+		fmt.Println(ans)
 	}
 
-	fmt.Println(s)
 }
