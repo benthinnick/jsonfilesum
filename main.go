@@ -6,9 +6,48 @@ import (
 	"gofilesum/types"
 	"log"
 	"os"
+	"sync"
 )
 
+const bulkSize = 10
+
+func startProcess(in <-chan [bulkSize]types.Pair, out chan<- int64, wg *sync.WaitGroup) {
+
+	go func() {
+		defer wg.Done()
+		var sum int64
+
+		for pairs := range in {
+			for _, pair := range pairs {
+				sum += (pair.A + pair.B)
+			}
+			out <- sum
+		}
+
+		log.Println("Channel closed")
+
+		out <- sum
+	}()
+}
+
 func main() {
+	var wg sync.WaitGroup
+
+	var chans [5]chan [bulkSize]types.Pair
+	out := make(chan int64, 10)
+
+	for i := 0; i < 5; i++ {
+		chans[i] = make(chan [bulkSize]types.Pair)
+		wg.Add(1)
+		startProcess(chans[i], out, &wg)
+	}
+
+	go func() {
+		wg.Wait()
+		log.Println("Channels closed")
+		close(out)
+	}()
+
 	f, err := os.Open("./bigData.json")
 
 	if err != nil {
@@ -16,34 +55,49 @@ func main() {
 	}
 	defer f.Close()
 
-	var sumA int64
-	var sumB int64
 	dec := json.NewDecoder(f)
 
-	// read open bracket
 	_, err = dec.Token()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// while the array contains values
+	count := 0
+	var pairs [bulkSize]types.Pair
+	currChan := 0
 	for dec.More() {
 		var m types.Pair
-		// decode an array value (Message)
 		err := dec.Decode(&m)
 		if err != nil {
 			log.Fatal(err)
 		}
-		sumA += m.A
-		sumB += m.B
+		pairs[count] = m
+		count++
+		if count >= bulkSize {
+			chans[currChan] <- pairs
+			currChan++
+			if currChan >= len(chans) {
+				currChan = 0
+			}
+			count = 0
+			pairs = [bulkSize]types.Pair{}
+		}
 	}
+	chans[currChan] <- pairs
 
-	// read closing bracket
 	_, err = dec.Token()
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("sumA: %v\n", sumA)
-	fmt.Printf("sumB: %v\n", sumB)
 
+	for _, ch := range chans {
+		close(ch)
+	}
+
+	var s int64
+	for v := range out {
+		s += v
+	}
+
+	fmt.Println(s)
 }
