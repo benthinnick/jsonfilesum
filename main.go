@@ -22,6 +22,7 @@ func startProcess(in <-chan [bulkSize]types.Pair, out chan<- int64, wg *sync.Wai
 				sum += (pair.A + pair.B)
 			}
 			out <- sum
+			sum = 0
 		}
 
 		log.Println("Channel closed")
