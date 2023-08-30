@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"gofilesum/types"
 	"log"
@@ -12,36 +13,40 @@ import (
 const bulkSize = 10
 
 func startProcess(in <-chan [bulkSize]types.Pair, out chan<- int64, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var sum int64
 
-	go func() {
-		defer wg.Done()
-		var sum int64
-
-		for pairs := range in {
-			for _, pair := range pairs {
-				sum += (pair.A + pair.B)
-			}
-			out <- sum
-			sum = 0
+	for pairs := range in {
+		for _, pair := range pairs {
+			sum += (pair.A + pair.B)
 		}
-
-		log.Println("Channel closed")
-
 		out <- sum
-	}()
+		sum = 0
+	}
+
+	log.Println("Channel closed")
+
+	out <- sum
 }
 
 func main() {
+	filename := flag.String("f", "", "path filename")
+	goroutineNum := flag.Int("gr", 1, "number of goroutines to process file")
+
+	flag.Parse()
+
+	fmt.Println("gr", *goroutineNum)
+
 	var wg sync.WaitGroup
 
-	var chans [5]chan [bulkSize]types.Pair
+	chans := make([]chan [bulkSize]types.Pair, *goroutineNum)
 	out := make(chan int64)
 	res := make(chan int64)
 
-	for i := 0; i < 5; i++ {
-		chans[i] = make(chan [bulkSize]types.Pair, 3)
+	for i := 0; i < *goroutineNum; i++ {
+		chans[i] = make(chan [bulkSize]types.Pair)
 		wg.Add(1)
-		startProcess(chans[i], out, &wg)
+		go startProcess(chans[i], out, &wg)
 	}
 
 	go func() {
@@ -53,7 +58,7 @@ func main() {
 		res <- s
 	}()
 
-	f, err := os.Open("./bigData.json")
+	f, err := os.Open(*filename)
 
 	if err != nil {
 		log.Fatal(err)
@@ -107,5 +112,5 @@ func main() {
 	if ok {
 		fmt.Println(ans)
 	}
-
+	close(res)
 }
